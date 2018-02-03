@@ -21,7 +21,9 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //  SOFTWARE.
 
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace KeyNode
@@ -29,11 +31,12 @@ namespace KeyNode
     [KSPAddon(KSPAddon.Startup.Flight, false)]
     public class KeyNode : MonoBehaviour
     {
-        internal static Vessel Vessel;
-        internal static ManeuverNode Node;
-        private static double _delta;
+        #region --- [ fields ] ------------------------------------------------------------------------------------------------
 
-        internal static bool Ralt, Rctrl, Rshift;
+        private const string ID = "[KeyNode]";
+
+        private static double _delta;
+        private static bool _rightAlt, _rightCtrl, _rightShift;
 
         // lookup table for delta modifiers
         private static readonly double[] ModKeyMap =
@@ -49,110 +52,480 @@ namespace KeyNode
             0.0001 // 7 all mod keys held
         };
 
-        // lookup table for standard node operations
-        private static readonly Dictionary<KeyCode, KeyHandler> KeyHandlers = new Dictionary<KeyCode, KeyHandler>
+        private static readonly Dictionary<KeyCode, Callback> ModifierKeys = new Dictionary<KeyCode, Callback>
         {
-            {KeyCode.Keypad1, () => Node.DeltaV.z -= _delta}, // subtract prograde
-            {KeyCode.Keypad2, () => Node.DeltaV.y -= _delta}, // subtract normal
-            {KeyCode.Keypad3, () => Node.UT -= _delta}, // subtract time
-            {KeyCode.Keypad4, () => Node.DeltaV.x -= _delta}, // subtract radial
-            // 5 reserved
-            {KeyCode.Keypad6, () => Node.DeltaV.x += _delta}, // add radial
-            {KeyCode.Keypad7, () => Node.DeltaV.z += _delta}, // add prograde
-            {KeyCode.Keypad8, () => Node.DeltaV.y += _delta}, // add normal
-            {KeyCode.Keypad9, () => Node.UT += _delta}, // add time
-            // special keys
-            {KeyCode.KeypadPlus, () => Node.UT += Vessel.orbit.period}, // add orbit
+            {KeyCode.Keypad1, () => currentNode.DeltaV.z -= _delta}, // subtract prograde
+            {KeyCode.Keypad2, () => currentNode.DeltaV.y -= _delta}, // subtract normal
+            {KeyCode.Keypad3, () => currentNode.UT -= _delta}, // subtract time
+            {KeyCode.Keypad4, () => currentNode.DeltaV.x -= _delta}, // subtract radial
+            // Keypad5 is reserved
+            {KeyCode.Keypad6, () => currentNode.DeltaV.x += _delta}, // add raidal
+            {KeyCode.Keypad7, () => currentNode.DeltaV.z += _delta}, // add prograde
+            {KeyCode.Keypad8, () => currentNode.DeltaV.y += _delta}, // add normal
+            {KeyCode.Keypad9, () => currentNode.UT += _delta}, // add time
+            {KeyCode.KeypadPlus, () => currentNode.UT += orbit.period}, // add an orbit
             {
-                KeyCode.KeypadMinus, () => // subtract orbit, if able.
+                KeyCode.KeypadMinus, () => // subtract an orbit, if able. (don't go into the past)
                 {
-                    var UT = Node.UT - Vessel.orbit.period;
-                    if (UT > Planetarium.GetUniversalTime())
-                        Node.UT = UT;
+                    var ut = currentNode.UT - orbit.period;
+                    if (ut > UT)
+                        currentNode.UT = ut;
                 }
             },
+            {
+                KeyCode.Backspace, () => // delete node(s)
+                {
+                    if (!_rightShift) // right shift is required as a safety precaution.
+                        return;
 
-
-            // when shift is pressed, it changes the function of the numpad, so we'll work around it with these.
-            {KeyCode.End, () => KeyHandlers[KeyCode.Keypad1].Invoke()},
-            {KeyCode.DownArrow, () => KeyHandlers[KeyCode.Keypad2].Invoke()},
-            {KeyCode.PageDown, () => KeyHandlers[KeyCode.Keypad3].Invoke()},
-            {KeyCode.LeftArrow, () => KeyHandlers[KeyCode.Keypad4].Invoke()},
-            // 5 reserved
-            {KeyCode.RightArrow, () => KeyHandlers[KeyCode.Keypad6].Invoke()},
-            {KeyCode.Home, () => KeyHandlers[KeyCode.Keypad7].Invoke()},
-            {KeyCode.UpArrow, () => KeyHandlers[KeyCode.Keypad8].Invoke()},
-            {KeyCode.PageUp, () => KeyHandlers[KeyCode.Keypad9].Invoke()}
+                    if (_rightCtrl) // right control will delete all nodes
+                        while (vessel.patchedConicSolver.maneuverNodes.Any())
+                        {
+                            vessel.patchedConicSolver.maneuverNodes.Last().RemoveSelf();
+                            vessel.patchedConicSolver.UpdateFlightPlan();
+                        }
+                    else
+                        vessel.patchedConicSolver.maneuverNodes.Last().RemoveSelf();
+                }
+            }
         };
 
+        #endregion
+
+        #region --- [ plugin methods ] ----------------------------------------------------------------------------------------
+
+        /// <summary>
+        ///     Awakes this instance.
+        /// </summary>
         public void Awake()
         {
-            // This is a kludge until I can figure out how to intercept keys and block them while the map is open
+            // this is a dirty kludge, I know, and it only works with the default keybindings.
+            // does anyone know how to intercept the keys while the map is open, and block them from their normal tasks?
             GameSettings.ZOOM_IN = new KeyBinding(); // keypad plus
             GameSettings.ZOOM_OUT = new KeyBinding(); // keypad minus
             GameSettings.SCROLL_VIEW_UP = new KeyBinding(); // page up
             GameSettings.SCROLL_VIEW_DOWN = new KeyBinding(); // page down
             GameSettings.CAMERA_ORBIT_LEFT = new KeyBinding(); // left arrow
             GameSettings.CAMERA_ORBIT_RIGHT = new KeyBinding(); // right arrow
+            GameSettings.CAMERA_ORBIT_UP = new KeyBinding(); // up arrow
+            GameSettings.CAMERA_ORBIT_DOWN = new KeyBinding(); // down arrow
             GameSettings.NAVBALL_TOGGLE = new KeyBinding(); // toggling navball exits mapview ...why?
             GameSettings.SCROLL_ICONS_UP = new KeyBinding(); // home
             GameSettings.SCROLL_ICONS_DOWN = new KeyBinding(); // end
+            GameSettings.UIMODE_STAGING = new KeyBinding(); // insert - who even uses docking mode, anyway?
+            GameSettings.UIMODE_DOCKING = new KeyBinding(); // delete - also for docking mode
             GameSettings.ApplySettings();
             GameSettings.SaveSettings();
-            
-            MechJebWrapper.InitMechJebWrapper();
+
+            // these kludges handle things when NumLock is disabled
+            ModifierKeys.Add(KeyCode.End, ModifierKeys[KeyCode.Keypad1]);
+            ModifierKeys.Add(KeyCode.DownArrow, ModifierKeys[KeyCode.Keypad2]);
+            ModifierKeys.Add(KeyCode.PageDown, ModifierKeys[KeyCode.Keypad3]);
+            ModifierKeys.Add(KeyCode.LeftArrow, ModifierKeys[KeyCode.Keypad4]);
+            // Keypad5 is reserved
+            ModifierKeys.Add(KeyCode.RightArrow, ModifierKeys[KeyCode.Keypad6]);
+            ModifierKeys.Add(KeyCode.Home, ModifierKeys[KeyCode.Keypad7]);
+            ModifierKeys.Add(KeyCode.UpArrow, ModifierKeys[KeyCode.Keypad8]);
+            ModifierKeys.Add(KeyCode.PageUp, ModifierKeys[KeyCode.Keypad9]);
+
+            ManeuverKeys.Add(KeyCode.Insert, ManeuverKeys[KeyCode.Keypad0]);
+            ManeuverKeys.Add(KeyCode.Delete, ManeuverKeys[KeyCode.KeypadPeriod]);
+            // keypad 5 doesn't work without numlock
+
+            _mechJeb2 = AssemblyLoader.loadedAssemblies.FirstOrDefault(a => a.name.Equals("MechJeb2"));
         }
 
+        /// <summary>
+        ///     Updates this instance.
+        /// </summary>
         public void Update()
         {
+            if (!FlightGlobals.ready)
+            {
+                Debug.Log($"{ID} FlightGlobals are not ready!");
+                return;
+            }
+
             if (!MapView.MapIsEnabled)
                 return;
 
-            //Debug.Log("[KeyNode] UPDATE!");
-            if (!FlightGlobals.ready)
+            // check if  patched conics is available
+            if (!PatchedConicsUnlocked)
                 return;
 
-            Vessel = FlightGlobals.ActiveVessel;
+            // cannot be in a time warp; warped physics messup the nodes
+            if (Time.timeScale != 1f)
+                return;
 
-            Ralt = Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.RightCommand); // mac keyboard support on right side
-            Rctrl = Input.GetKey(KeyCode.RightControl);
-            Rshift = Input.GetKey(KeyCode.RightShift);
-            
+            // SOI Warp
+            if (Input.GetKeyUp(KeyCode.KeypadMultiply))
+            {
+                switch (orbit.patchEndTransition)
+                {
+                    case Orbit.PatchTransitionType.ENCOUNTER:
+                    case Orbit.PatchTransitionType.ESCAPE:
+                        // this is fine
+                        break;
+
+                    default:
+                        Debug.Log($"{ID} transition: {orbit.patchStartTransition} & {orbit.patchEndTransition}");
+                        Error("Warp To SOI transition is not currently possible.");
+                        return;
+                }
+
+                Msg("Warping to SOI change");
+                TimeWarp.fetch.WarpTo(orbit.EndUT);
+                return;
+            }
+
+            _rightAlt = Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.RightCommand);
+            _rightCtrl = Input.GetKey(KeyCode.RightControl);
+            _rightShift = Input.GetKey(KeyCode.RightShift);
+
             // combine the modifier keys into a binary-coded integer
-            var i = (Rctrl ? 1 : 0) |
-                    (Rshift ? 2 : 0) |
-                    (Ralt ? 4 : 0);
+            var i = (_rightCtrl ? 1 : 0) |
+                    (_rightShift ? 2 : 0) |
+                    (_rightAlt ? 4 : 0);
 
             // assign the delta based on the modifier keys. Lookup-tables are much nicer than giant blocks of if conditions.
             _delta = ModKeyMap[i];
 
-            if (Vessel.patchedConicSolver.maneuverNodes.Count < 1)
+            // call maneuver methods as needed, if MechJeb is installed.
+            if (_mechJeb2 != null)
+                foreach (var maneuverKey in ManeuverKeys)
+                    if (Input.GetKeyUp(maneuverKey.Key))
+                        maneuverKey.Value(); // the maneuver method is in the value
+
+            // make sure a node exists
+            if (!vessel.patchedConicSolver.maneuverNodes.Any())
                 return;
 
-            Node = Vessel.patchedConicSolver.maneuverNodes[0]; // get current node
-
-            // poll the keys and call the handlers as needed. (The handlers are also stored in a lookup table.)
-            foreach (var keyHandler in KeyHandlers)
-                if (Input.GetKeyUp(keyHandler.Key))
-                {
-                    //Debug.Log($"[KeyNode] Handler {keyHandler.Key.ToString()}");
-                    keyHandler.Value();
-
-                    if (MechJebWrapper.ready)
-                        MechJebWrapper.UpdateMechJebNodeEditor();
-
-                    Node.solver.UpdateFlightPlan();
-                    if (Node.attachedGizmo == null)
-                        continue;
-
-                    Node.attachedGizmo.patchBefore = Node.patch;
-                    Node.attachedGizmo.patchAhead = Node.nextPatch;
-
-                    if (MechJebWrapper.ready)
-                        MechJebWrapper.UpdateMechJebNodeEditor();
-                }
+            foreach (var modifierKey in ModifierKeys)
+            {
+                if (!Input.GetKeyUp(modifierKey.Key)) continue;
+                modifierKey.Value(); // the modifier method is in the value
+                UpdateNode(currentNode);
+            }
         }
 
-        private delegate void KeyHandler();
+        private static void UpdateNode(ManeuverNode node)
+        {
+            vessel.patchedConicSolver.UpdateFlightPlan();
+            if (node.attachedGizmo == null)
+                return;
+
+            node.attachedGizmo.DeltaV = node.DeltaV;
+            node.attachedGizmo.UT = node.UT;
+            node.attachedGizmo.patchBefore = node.patch;
+            node.attachedGizmo.patchAhead = node.nextPatch;
+            node.attachedGizmo.OnGizmoUpdated?.Invoke(node.DeltaV, node.UT);
+        }
+
+        #endregion
+
+        #region --- [ MechJeb support ] ---------------------------------------------------------------------------------------
+
+        private static AssemblyLoader.LoadedAssembly _mechJeb2; // this is the mechjeb assembly, if installed.
+
+        private delegate ScreenMessage CallbackMJ(); // callback is ScreenMessage to make error throws and debugging easier.
+
+        /// <summary>
+        ///     The maneuver keys
+        /// </summary>
+        private static readonly Dictionary<KeyCode, CallbackMJ> ManeuverKeys = new Dictionary<KeyCode, CallbackMJ>
+        {
+            {KeyCode.Keypad0, MechJebOperationCircularize},
+            {KeyCode.KeypadPeriod, MechJebOperationMatchVelocitiesWithTarget},
+            {KeyCode.KeypadEnter, MechJebOperationExecuteNode},
+            {KeyCode.Keypad5, MechJebOperationInterceptTarget},
+            {KeyCode.KeypadDivide, MechJebOperationTransfer}
+        };
+
+        /// <summary>
+        ///     Places a maneuver node.
+        /// </summary>
+        /// <param name="dv">The dv.</param>
+        /// <param name="ut">The ut.</param>
+        /// <param name="v">The v.</param>
+        /// <param name="o">The o.</param>
+        private static void PlaceManeuverNode(Vector3d dv, double ut, Vessel v = null, Orbit o = null)
+        {
+            if (v == null) v = vessel;
+            if (o == null) o = orbit;
+
+            for (var i = 0; i < 3; i++)
+                if (double.IsNaN(dv[i])
+                    || double.IsInfinity(dv[i]))
+                    throw new ArgumentOutOfRangeException($"{ID} bad dv node");
+
+            if (double.IsNaN(ut)
+                || double.IsInfinity(ut))
+                throw new ArgumentOutOfRangeException($"{ID} bad ut node");
+
+            ut = Math.Max(ut, UT);
+            var node = vessel.patchedConicSolver.AddManeuverNode(ut);
+            node.DeltaV = (Vector3d) MuMech("OrbitExtensions.DeltaVToManeuverNodeCoordinates", o, ut, dv);
+            UpdateNode(node);
+        }
+
+        // convienenice method
+        private static object MuMech(string methodPath, params object[] args) => MuMech(methodPath, ref args);
+
+        /// <summary>
+        ///     Invokes static methods, automatic type detection and reference type support (for out/ref parameters)
+        /// </summary>
+        /// <param name="methodPath">The method path.</param>
+        /// <param name="args">The arguments.</param>
+        /// <param name="refTypeIndicies">The reference type indicies.</param>
+        /// <returns></returns>
+        /// <exception cref="NullReferenceException">
+        /// </exception>
+        private static object MuMech(string methodPath, ref object[] args, int[] refTypeIndicies = null)
+        {
+            var types = args.Select(o => o.GetType()).ToArray();
+            if (refTypeIndicies != null)
+                foreach (var t in refTypeIndicies)
+                    types[t] = types[t].MakeByRefType();
+
+            var i = methodPath.LastIndexOf(".", StringComparison.OrdinalIgnoreCase);
+            var classPath = "MuMech." + methodPath.Substring(0, i);
+            var methodName = methodPath.Substring(i + 1);
+            Debug.Log($"{ID} {classPath}.{methodName}({string.Join(", ", types.Select(t => t.Name).ToArray())})");
+
+            var c = _mechJeb2.assembly.GetType(classPath);
+            if (c == null)
+                throw new NullReferenceException($"{ID} classPath is invalid"); // check your spelling?
+
+            var m = c.GetMethod(methodName, types);
+            if (m == null)
+                throw new NullReferenceException($"{ID} methodName is invalid"); // check your spelling?
+
+            return m.Invoke(null, args);
+        }
+
+
+        /// <summary>
+        ///     Node execution
+        /// </summary>
+        /// <param name="allNodes">if set to <c>true</c> [all nodes].</param>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationExecuteNode()
+        {
+            if (!vessel.patchedConicSolver.maneuverNodes.Any())
+                return Error("Need at least 1 maneuver node to execute.");
+
+            var mjCore = MuMech("VesselExtensions.GetMasterMechJeb", vessel);
+
+            // get the node executor module from mechjeb
+            var execModule = mjCore.GetType().GetMethod("GetComputerModule", new[] {typeof(string)})
+                .Invoke(mjCore, new object[] {"MechJebModuleNodeExecutor"});
+
+            var type = execModule.GetType();
+
+            if ((bool) type.GetProperty("enabled").GetValue(execModule, null))
+            {
+                type.GetMethod("Abort").Invoke(execModule, new object[] { });
+                return Msg("Node execution aborted!");
+            }
+
+            if (_rightShift) // right shift forces all nodes to execute
+            {
+                type.GetMethod("ExecuteAllNodes").Invoke(execModule, new[] {execModule});
+                return Msg("Executing ALL nodes");
+            }
+
+            // execute one node by default.
+            type.GetMethod("ExecuteOneNode").Invoke(execModule, new[] {execModule});
+            return Msg("Executing current node");
+        }
+
+        /// <summary>
+        ///     Match velocities with target
+        /// </summary>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationMatchVelocitiesWithTarget()
+        {
+            if (!NormalTargetExists)
+                return Error("Target required to match velocities with.");
+
+            if (orbit.referenceBody != targetOrbit.referenceBody)
+                return Error("Target must be in the same SOI.");
+
+            var ut = (double) MuMech("OrbitExtensions.NextClosestApproachTime", orbit, targetOrbit, UT);
+            var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVToMatchVelocities", orbit, ut, targetOrbit);
+
+            PlaceManeuverNode(dv, ut);
+            return null;
+        }
+
+        /// <summary>
+        ///     Circularize
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="NullReferenceException">dv is null</exception>
+        private static ScreenMessage MechJebOperationCircularize()
+        {
+            if (orbit.eccentricity < 0.2)
+                return Error("Current orbit is already circular.");
+
+            var ut = _rightShift || orbit.eccentricity >= 1 // hyperbolic orbits force periapsis burns
+                         ? (double) MuMech("OrbitExtensions.NextPeriapsisTime", orbit, UT)
+                         : (double) MuMech("OrbitExtensions.NextApoapsisTime", orbit, UT);
+
+            var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVToCircularize", orbit, ut);
+            if (dv == null)
+                throw new NullReferenceException("dv is null");
+
+            PlaceManeuverNode(dv, ut);
+            return null;
+        }
+
+        /// <summary>
+        ///     Transfer to target. TODO: Porkchop Transfer
+        /// </summary>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationTransfer()
+        {
+            if (_rightShift)
+                return MechJebOperationReturnFromMoon();
+
+            return MechJebOperationHohmannTransfer();
+        }
+
+        /// <summary>
+        ///     Return from Moon
+        /// </summary>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationReturnFromMoon()
+        {
+            if (orbit.eccentricity > 0.2)
+                return Error("Starting orbit for Moon Return is too hyperbolic. Circularize first.");
+
+            var body = orbit.referenceBody.referenceBody;
+            if (body == null)
+                return Error($"{orbit.referenceBody.displayName} is not orbiting another body you could return to.");
+
+            const double lowOrbit = 20000d;
+            var alt = body.Radius + body.atmosphereDepth + lowOrbit;
+            var args = new object[] {orbit, UT, alt, 0d};
+            var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVAndTimeForMoonReturnEjection", ref args, new[] {3});
+            var ut = (double) args[3];
+
+            PlaceManeuverNode(dv, ut);
+            return null;
+        }
+
+        /// <summary>
+        ///     Hohmann Transfer
+        /// </summary>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationHohmannTransfer()
+        {
+            if (!NormalTargetExists)
+                return Error("Target required for Hohmann Transfer.");
+
+            if (orbit.referenceBody != targetOrbit.referenceBody)
+                return Error("Target for Hohmann Transfer must be in the same SOI.");
+
+            if (orbit.eccentricity > 0.2)
+                return Error("Starting orbit for Hohmann Transfer is too hyperbolic. Circularize first.");
+
+            if (targetOrbit.eccentricity > 1)
+                return Error("Target's orbit for Hohmann Transfer can not be hyperbolic.");
+
+            var relInc = (double) MuMech("OrbitExtensions.RelativeInclination", orbit, targetOrbit);
+
+            if (relInc > 30
+                && relInc < 150)
+                ScreenMessages.PostScreenMessage($"{ID} WARNING: Planned Hohmann Transfer might not intercept the target!");
+
+            var args = new object[] {orbit, targetOrbit, UT, 0d};
+            var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer", ref args, new[] {3});
+            PlaceManeuverNode(dv, (double) args[3]);
+            return null;
+        }
+
+        /// <summary>
+        ///     Intercept Course Correction
+        /// </summary>
+        /// <returns></returns>
+        private static ScreenMessage MechJebOperationInterceptTarget()
+        {
+            if (!NormalTargetExists)
+                return Error("Target required for Intercept Course Correction.");
+
+            var ut = UT;
+            var o = orbit;
+            var correctionPatch = orbit;
+            while (correctionPatch != null)
+            {
+                if (correctionPatch.referenceBody == targetOrbit.referenceBody)
+                {
+                    o = correctionPatch;
+                    ut = o.StartUT;
+                    break;
+                }
+
+                correctionPatch = (Orbit) MuMech("VesselExtensions.GetNextPatch", vessel, correctionPatch);
+            }
+
+            if (correctionPatch == null
+                || correctionPatch.referenceBody != targetOrbit.referenceBody)
+                return Error("Target for Intercept Course Correction must be in the same SOI.");
+
+            var aTime = (double) MuMech("OrbitExtensions.NextClosestApproachTime", o, targetOrbit, ut);
+            var aDist = (double) MuMech("OrbitExtensions.NextClosestApproachDistance", o, targetOrbit, ut);
+
+            if (aTime < ut + 1
+                || aDist > targetOrbit.semiMajorAxis * 0.2)
+                return Error("Intercept Course Correction is currently not possible!");
+
+            const double PeA = 200000,
+                         iDist = 200d;
+
+            Vector3d dv;
+            var targetBody = target as CelestialBody;
+            const string M = "OrbitalManeuverCalculator.DeltaVAndTimeForCheapestCourseCorrection";
+
+            if (targetBody == null)
+            {
+                var args = new object[] {o, ut, targetOrbit, iDist, ut};
+                dv = (Vector3d) MuMech(M, ref args, new[] {4});
+                ut = (double) args[4];
+            }
+            else
+            {
+                var args = new object[] {o, ut, targetOrbit, targetBody, targetBody.Radius + PeA, ut};
+                dv = (Vector3d) MuMech(M, ref args, new[] {5});
+                ut = (double) args[5];
+            }
+
+            PlaceManeuverNode(dv, ut);
+            return null;
+        }
+
+        #endregion
+
+        #region --- [ convienece properties for simplicity's sake ] -----------------------------------------------------------
+
+        private static ScreenMessage Msg(string msg) => Error(msg);
+        private static ScreenMessage Error(string msg) => ScreenMessages.PostScreenMessage($"{ID} {msg}");
+        private static double UT => Planetarium.GetUniversalTime();
+        private static Vessel vessel => FlightGlobals.ActiveVessel;
+        private static Orbit orbit => vessel.orbit;
+        private static ITargetable target => vessel.targetObject;
+        private static Orbit targetOrbit => target.GetOrbit();
+        private static bool PatchedConicsUnlocked => vessel.patchedConicSolver != null;
+        private static ManeuverNode currentNode => vessel.patchedConicSolver.maneuverNodes.First();
+
+        private static bool CanAlignTarget => target != null
+                                              && target.GetTargetingMode() == VesselTargetModes.DirectionVelocityAndOrientation;
+
+        private static bool NormalTargetExists => target != null
+                                                  && (target is Vessel
+                                                      || target is CelestialBody
+                                                      || CanAlignTarget);
+
+        #endregion
     }
 }
