@@ -1,0 +1,7 @@
+﻿28-JAN-2018 v0.1 - Beta Testing
+
+04-FEB-2018 v1.0 - Full release, includes seamless MechJeb integration
+
+08-FEB-2018 v1.1 -  Added Readme.txt for instructions
+					Added ChangeLog.txt for tracking changes
+					Added MechJeb Maneuver "Match Planes With Target" bound to RightShift + Keypad Period

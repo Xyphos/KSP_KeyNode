@@ -140,43 +140,35 @@ namespace KeyNode
         /// </summary>
         public void Update()
         {
-            if (!FlightGlobals.ready)
-            {
-                Debug.Log($"{ID} FlightGlobals are not ready!");
-                return;
-            }
-
-            if (!MapView.MapIsEnabled)
+            if (!FlightGlobals.ready
+                || !MapView.MapIsEnabled
+                || !PatchedConicsUnlocked)
                 return;
 
-            // check if  patched conics is available
-            if (!PatchedConicsUnlocked)
-                return;
+            #region BugFix: Cancel MechJeb node execution while time warping
 
-            // cannot be in a time warp; warped physics messup the nodes
+            if (_mechJeb2 != null
+                && Input.GetKeyUp(KeyCode.KeypadEnter))
+                MechJebOperationExecuteNode();
+
+            #endregion
+
             if (Time.timeScale != 1f)
                 return;
 
             // SOI Warp
             if (Input.GetKeyUp(KeyCode.KeypadMultiply))
-            {
-                switch (orbit.patchEndTransition)
+                if (orbit.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER
+                    || orbit.patchEndTransition == Orbit.PatchTransitionType.ESCAPE)
                 {
-                    case Orbit.PatchTransitionType.ENCOUNTER:
-                    case Orbit.PatchTransitionType.ESCAPE:
-                        // this is fine
-                        break;
-
-                    default:
-                        Debug.Log($"{ID} transition: {orbit.patchStartTransition} & {orbit.patchEndTransition}");
-                        Error("Warp To SOI transition is not currently possible.");
-                        return;
+                    Msg("Warping to SOI change");
+                    TimeWarp.fetch.WarpTo(orbit.EndUT);
+                    return; // do not operate while in time warp
                 }
-
-                Msg("Warping to SOI change");
-                TimeWarp.fetch.WarpTo(orbit.EndUT);
-                return;
-            }
+                else
+                {
+                    Msg("Warp To SOI transition is not currently possible.");
+                }
 
             _rightAlt = Input.GetKey(KeyCode.RightAlt) || Input.GetKey(KeyCode.RightCommand);
             _rightCtrl = Input.GetKey(KeyCode.RightControl);
@@ -227,16 +219,14 @@ namespace KeyNode
 
         private static AssemblyLoader.LoadedAssembly _mechJeb2; // this is the mechjeb assembly, if installed.
 
-        private delegate ScreenMessage CallbackMJ(); // callback is ScreenMessage to make error throws and debugging easier.
 
         /// <summary>
         ///     The maneuver keys
         /// </summary>
-        private static readonly Dictionary<KeyCode, CallbackMJ> ManeuverKeys = new Dictionary<KeyCode, CallbackMJ>
+        private static readonly Dictionary<KeyCode, Callback> ManeuverKeys = new Dictionary<KeyCode, Callback>
         {
             {KeyCode.Keypad0, MechJebOperationCircularize},
             {KeyCode.KeypadPeriod, MechJebOperationMatchVelocitiesWithTarget},
-            {KeyCode.KeypadEnter, MechJebOperationExecuteNode},
             {KeyCode.Keypad5, MechJebOperationInterceptTarget},
             {KeyCode.KeypadDivide, MechJebOperationTransfer}
         };
@@ -282,7 +272,11 @@ namespace KeyNode
         /// </exception>
         private static object MuMech(string methodPath, ref object[] args, int[] refTypeIndicies = null)
         {
-            var types = args.Select(o => o.GetType()).ToArray();
+            Debug.Log($"[KeyNode] ARGS: {args.Length}");
+            var types = args.Length == 0
+                            ? Type.EmptyTypes
+                            : args.Select(o => o.GetType()).ToArray();
+
             if (refTypeIndicies != null)
                 foreach (var t in refTypeIndicies)
                     types[t] = types[t].MakeByRefType();
@@ -294,11 +288,11 @@ namespace KeyNode
 
             var c = _mechJeb2.assembly.GetType(classPath);
             if (c == null)
-                throw new NullReferenceException($"{ID} classPath is invalid"); // check your spelling?
+                throw new NullReferenceException($"{ID} classPath is invalid"); // check your spelling and/or arg types?
 
             var m = c.GetMethod(methodName, types);
             if (m == null)
-                throw new NullReferenceException($"{ID} methodName is invalid"); // check your spelling?
+                throw new NullReferenceException($"{ID} methodName is invalid"); // check your spelling and/or arg types?
 
             return m.Invoke(null, args);
         }
@@ -309,10 +303,10 @@ namespace KeyNode
         /// </summary>
         /// <param name="allNodes">if set to <c>true</c> [all nodes].</param>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationExecuteNode()
+        private static void MechJebOperationExecuteNode()
         {
             if (!vessel.patchedConicSolver.maneuverNodes.Any())
-                return Error("Need at least 1 maneuver node to execute.");
+                throw new Dwarf("Need at least 1 maneuver node to execute.");
 
             var mjCore = MuMech("VesselExtensions.GetMasterMechJeb", vessel);
 
@@ -325,37 +319,84 @@ namespace KeyNode
             if ((bool) type.GetProperty("enabled").GetValue(execModule, null))
             {
                 type.GetMethod("Abort").Invoke(execModule, new object[] { });
-                return Msg("Node execution aborted!");
+                Msg("Node execution aborted!");
+                return;
             }
 
             if (_rightShift) // right shift forces all nodes to execute
             {
                 type.GetMethod("ExecuteAllNodes").Invoke(execModule, new[] {execModule});
-                return Msg("Executing ALL nodes");
+                Msg("Executing ALL nodes");
+                return;
             }
 
             // execute one node by default.
             type.GetMethod("ExecuteOneNode").Invoke(execModule, new[] {execModule});
-            return Msg("Executing current node");
+            Msg("Executing current node");
         }
 
         /// <summary>
         ///     Match velocities with target
         /// </summary>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationMatchVelocitiesWithTarget()
+        private static void MechJebOperationMatchVelocitiesWithTarget()
         {
-            if (!NormalTargetExists)
-                return Error("Target required to match velocities with.");
+            // Match Planes instead
+            if (_rightShift)
+            {
+                MechJebOperationMatchPlanesWithTarget();
+                return;
+            }
 
-            if (orbit.referenceBody != targetOrbit.referenceBody)
-                return Error("Target must be in the same SOI.");
+            if (!NormalTargetExists)
+                throw new Dwarf("Target required to match velocities with.");
+
+            if (!InSameSOI)
+                throw new Dwarf("Target must be in the same SOI.");
 
             var ut = (double) MuMech("OrbitExtensions.NextClosestApproachTime", orbit, targetOrbit, UT);
             var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVToMatchVelocities", orbit, ut, targetOrbit);
 
             PlaceManeuverNode(dv, ut);
-            return null;
+        }
+
+
+        private static void MechJebOperationMatchPlanesWithTarget()
+        {
+            if (!NormalTargetExists)
+                throw new Dwarf("Target required to match planes with.");
+
+            if (!InSameSOI)
+                throw new Dwarf("Target to match planes with must be within the same SOI.");
+
+            // compute nearest AN/DN node
+
+            double anTime = double.MaxValue, dnTime = double.MaxValue;
+            Vector3d anDv = Vector3d.zero, dnDv = Vector3d.zero;
+            var args = new object[] {orbit, targetOrbit, UT, 0d};
+            var refs = new[] {3};
+
+            var anExists = (bool) MuMech("OrbitExtensions.AscendingNodeEquatorialExists", orbit);
+            if (anExists)
+            {
+                anDv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesAscending", ref args, refs);
+                anTime = (double) args[3];
+            }
+
+            var dnExists = (bool) MuMech("OrbitExtensions.DescendingNodeEquatorialExists", orbit);
+            if (dnExists)
+            {
+                dnDv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesDescending", ref args, refs);
+                dnTime = (double) args[3];
+            }
+
+            if (!anExists
+                && !dnExists)
+                throw new Dwarf("Cannot match planes with target; AN/DN doesn't exist.");
+
+            var ut = anTime < dnTime ? anTime : dnTime;
+            var dv = anTime < dnTime ? anDv : dnDv;
+            PlaceManeuverNode(dv, ut);
         }
 
         /// <summary>
@@ -363,10 +404,10 @@ namespace KeyNode
         /// </summary>
         /// <returns></returns>
         /// <exception cref="NullReferenceException">dv is null</exception>
-        private static ScreenMessage MechJebOperationCircularize()
+        private static void MechJebOperationCircularize()
         {
             if (orbit.eccentricity < 0.2)
-                return Error("Current orbit is already circular.");
+                throw new Dwarf("Current orbit is already circular.");
 
             var ut = _rightShift || orbit.eccentricity >= 1 // hyperbolic orbits force periapsis burns
                          ? (double) MuMech("OrbitExtensions.NextPeriapsisTime", orbit, UT)
@@ -377,33 +418,35 @@ namespace KeyNode
                 throw new NullReferenceException("dv is null");
 
             PlaceManeuverNode(dv, ut);
-            return null;
         }
 
         /// <summary>
         ///     Transfer to target. TODO: Porkchop Transfer
         /// </summary>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationTransfer()
+        private static void MechJebOperationTransfer()
         {
             if (_rightShift)
-                return MechJebOperationReturnFromMoon();
+            {
+                MechJebOperationReturnFromMoon();
+                return;
+            }
 
-            return MechJebOperationHohmannTransfer();
+            MechJebOperationHohmannTransfer();
         }
 
         /// <summary>
         ///     Return from Moon
         /// </summary>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationReturnFromMoon()
+        private static void MechJebOperationReturnFromMoon()
         {
             if (orbit.eccentricity > 0.2)
-                return Error("Starting orbit for Moon Return is too hyperbolic. Circularize first.");
+                throw new Dwarf("Starting orbit for Moon Return is too hyperbolic. Circularize first.");
 
             var body = orbit.referenceBody.referenceBody;
             if (body == null)
-                return Error($"{orbit.referenceBody.displayName} is not orbiting another body you could return to.");
+                throw new Dwarf($"{orbit.referenceBody.displayName} is not orbiting another body you could return to.");
 
             const double lowOrbit = 20000d;
             var alt = body.Radius + body.atmosphereDepth + lowOrbit;
@@ -412,26 +455,25 @@ namespace KeyNode
             var ut = (double) args[3];
 
             PlaceManeuverNode(dv, ut);
-            return null;
         }
 
         /// <summary>
         ///     Hohmann Transfer
         /// </summary>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationHohmannTransfer()
+        private static void MechJebOperationHohmannTransfer()
         {
             if (!NormalTargetExists)
-                return Error("Target required for Hohmann Transfer.");
+                throw new Dwarf("Target required for Hohmann Transfer.");
 
-            if (orbit.referenceBody != targetOrbit.referenceBody)
-                return Error("Target for Hohmann Transfer must be in the same SOI.");
+            if (!InSameSOI)
+                throw new Dwarf("Target for Hohmann Transfer must be in the same SOI.");
 
             if (orbit.eccentricity > 0.2)
-                return Error("Starting orbit for Hohmann Transfer is too hyperbolic. Circularize first.");
+                throw new Dwarf("Starting orbit for Hohmann Transfer is too hyperbolic. Circularize first.");
 
             if (targetOrbit.eccentricity > 1)
-                return Error("Target's orbit for Hohmann Transfer can not be hyperbolic.");
+                throw new Dwarf("Target's orbit for Hohmann Transfer can not be hyperbolic.");
 
             var relInc = (double) MuMech("OrbitExtensions.RelativeInclination", orbit, targetOrbit);
 
@@ -442,17 +484,16 @@ namespace KeyNode
             var args = new object[] {orbit, targetOrbit, UT, 0d};
             var dv = (Vector3d) MuMech("OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer", ref args, new[] {3});
             PlaceManeuverNode(dv, (double) args[3]);
-            return null;
         }
 
         /// <summary>
         ///     Intercept Course Correction
         /// </summary>
         /// <returns></returns>
-        private static ScreenMessage MechJebOperationInterceptTarget()
+        private static void MechJebOperationInterceptTarget()
         {
             if (!NormalTargetExists)
-                return Error("Target required for Intercept Course Correction.");
+                throw new Dwarf("Target required for Intercept Course Correction.");
 
             var ut = UT;
             var o = orbit;
@@ -471,14 +512,14 @@ namespace KeyNode
 
             if (correctionPatch == null
                 || correctionPatch.referenceBody != targetOrbit.referenceBody)
-                return Error("Target for Intercept Course Correction must be in the same SOI.");
+                throw new Dwarf("Target for Intercept Course Correction must be in the same SOI.");
 
             var aTime = (double) MuMech("OrbitExtensions.NextClosestApproachTime", o, targetOrbit, ut);
             var aDist = (double) MuMech("OrbitExtensions.NextClosestApproachDistance", o, targetOrbit, ut);
 
             if (aTime < ut + 1
                 || aDist > targetOrbit.semiMajorAxis * 0.2)
-                return Error("Intercept Course Correction is currently not possible!");
+                throw new Dwarf("Intercept Course Correction is currently not possible!");
 
             const double PeA = 200000,
                          iDist = 200d;
@@ -501,15 +542,13 @@ namespace KeyNode
             }
 
             PlaceManeuverNode(dv, ut);
-            return null;
         }
 
         #endregion
 
         #region --- [ convienece properties for simplicity's sake ] -----------------------------------------------------------
 
-        private static ScreenMessage Msg(string msg) => Error(msg);
-        private static ScreenMessage Error(string msg) => ScreenMessages.PostScreenMessage($"{ID} {msg}");
+        private static void Msg(string msg) => ScreenMessages.PostScreenMessage($"{ID} {msg}");
         private static double UT => Planetarium.GetUniversalTime();
         private static Vessel vessel => FlightGlobals.ActiveVessel;
         private static Orbit orbit => vessel.orbit;
@@ -525,6 +564,8 @@ namespace KeyNode
                                                   && (target is Vessel
                                                       || target is CelestialBody
                                                       || CanAlignTarget);
+
+        private static bool InSameSOI => orbit.referenceBody == targetOrbit.referenceBody;
 
         #endregion
     }

@@ -32,6 +32,15 @@
       <HintPath>..\..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program\KSP_x64_Data\Managed\UnityEngine.UI.dll</HintPath>
     </Reference>
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="ChangeLog.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ReadMe.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
   
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Exec Command="MKDIR &quot;$(SolutionDir)GameData\XyphosAerospace\Plugins\$(ProjectName)&quot;&#xD;&#xA;&#xD;&#xA;COPY &quot;$(TargetPath)&quot; &quot;$(SolutionDir)GameData\XyphosAerospace\Plugins\$(ProjectName)\&quot;&#xD;&#xA;&#xD;&#xA;XCOPY /Y/S &quot;$(SolutionDir)GameData\*.*&quot; &quot;C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program - Copy\GameData\&quot;&#xD;&#xA;&#xD;&#xA;&quot;C:\Program Files\7-Zip\7z.exe&quot; a -tzip -r -y &quot;$(SolutionDir)$(ProjectName).zip&quot; &quot;$(SolutionDir)GameData\&quot;&#xD;&#xA;" />
