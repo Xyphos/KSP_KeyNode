@@ -23,6 +23,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using UnityEngine;
 
@@ -145,7 +146,11 @@ namespace KeyNode
                 || !PatchedConicsUnlocked)
                 return;
 
-            #region BugFix: Cancel MechJeb node execution while time warping
+            if (_mechJeb2 != null
+                && _xferCalc != null)
+                CheckPorkchop();
+
+            #region BugFix: v1.1 Cancel MechJeb node execution while time warping
 
             if (_mechJeb2 != null
                 && Input.GetKeyUp(KeyCode.KeypadEnter))
@@ -272,7 +277,7 @@ namespace KeyNode
         /// </exception>
         private static object MuMech(string methodPath, ref object[] args, int[] refTypeIndicies = null)
         {
-            Debug.Log($"[KeyNode] ARGS: {args.Length}");
+            //Debug.Log($"[KeyNode] ARGS: {args.Length}");
             var types = args.Length == 0
                             ? Type.EmptyTypes
                             : args.Select(o => o.GetType()).ToArray();
@@ -426,13 +431,112 @@ namespace KeyNode
         /// <returns></returns>
         private static void MechJebOperationTransfer()
         {
+            if (_xferCalc != null)
+                return; // don't interrupt previous calculations
+
             if (_rightShift)
             {
                 MechJebOperationReturnFromMoon();
+                return; // return from moon instead
+            }
+
+            if (orbit.referenceBody == targetOrbit.referenceBody
+                || orbit.referenceBody == Planetarium.fetch.Sun)
+                MechJebOperationHohmannTransfer(); // Use a normal Hohmann Transfer instead.
+
+            var body = orbit.referenceBody.displayName;
+
+            if (orbit.eccentricity >= 0.2)
+                throw new Dwarf("Starting orbit for interplanetary transfer must not be hyperbolic. "
+                                + "Circularize first.");
+
+            if (orbit.ApR >= orbit.referenceBody.sphereOfInfluence)
+                throw new Dwarf($"Starting orbit for interplanetary transfer must not "
+                                + $"escape {body}'s SOI.");
+
+            if (!NormalTargetExists)
+                throw new Dwarf("Target required for interplanetary transfer.");
+
+            if (orbit.referenceBody.referenceBody == null)
+                throw new Dwarf($"An interplanetary transfer from within {body}'s SOI "
+                                + $"must target a body that orbits {body}'s parent, "
+                                + $"{orbit.referenceBody.referenceBody.displayName}.");
+
+            if (target is CelestialBody
+                && orbit.referenceBody == targetOrbit.referenceBody)
+                throw new Dwarf($"Your vessel is already orbiting {body}");
+
+
+            // all checks passed, compute transfer
+            var synodicPeriod = (double) MuMech("OrbitExtensions.SynodicPeriod", orbit, targetOrbit);
+            var hohmannTransferTime = OrbitUtil.GetTransferTime(orbit.referenceBody.orbit, targetOrbit);
+
+            if (double.IsInfinity(synodicPeriod))
+                synodicPeriod = orbit.referenceBody.orbit.period; // both orbits have the same period
+
+            var minDepartureTime = UT;
+            var minTransferTime = 3600d;
+            var maxTransferTime = hohmannTransferTime * 1.5d;
+            var maxArrivalTime = (synodicPeriod + hohmannTransferTime) * 1.5d;
+            const double minSamplingStep = 12d * 3600d;
+
+            var type = _mechJeb2.assembly.GetType("MuMech.TransferCalculator");
+            if (type == null) throw new NullReferenceException("type null");
+
+            _xferCalc = Activator.CreateInstance(type, new object[]
+            {
+                orbit, targetOrbit,
+                minDepartureTime,
+                minDepartureTime + maxTransferTime,
+                3600,
+                maxTransferTime,
+                200, 200, false
+            }, CultureInfo.InvariantCulture);
+        }
+
+        private static object _xferCalc;
+
+        private static void CheckPorkchop()
+        {
+            var type = _xferCalc.GetType();
+            var progress = (int) type.GetProperty("Progress").GetValue(_xferCalc, null);
+            ScreenMessages.PostScreenMessage($"{ID} Calculating Transfer {progress}%",
+                                             0.1f, ScreenMessageStyle.UPPER_LEFT);
+
+            var finished = (bool) type.GetProperty("Finished").GetValue(_xferCalc, null);
+            if (!finished)
+                return;
+
+            var failed = (double) type.GetField("arrivalDate").GetValue(_xferCalc) < 0;
+            if (failed)
+            {
+                Msg("Transfer Computation failed!");
+                _xferCalc = null;
                 return;
             }
 
-            MechJebOperationHohmannTransfer();
+            var i = (int) type.GetField("bestDate").GetValue(_xferCalc);
+            var bestDate = (double) type.GetMethod("DateFromIndex")
+                .Invoke(_xferCalc, new object[] {i});
+
+            i = (int) type.GetField("bestDuration").GetValue(_xferCalc);
+            var bestDuration = (double) type.GetMethod("DurationFromIndex")
+                .Invoke(_xferCalc, new object[] {i});
+
+            var mp = type.GetMethod("OptimizeEjection").Invoke(_xferCalc, new object[]
+            {
+                bestDate,
+                orbit, targetOrbit, target as CelestialBody,
+                bestDate + bestDuration,
+                UT
+            });
+
+            type = mp.GetType();
+            var dv = (Vector3d) type.GetField("dV").GetValue(mp);
+            var ut = (double) type.GetField("UT").GetValue(mp);
+
+            PlaceManeuverNode(dv, ut);
+            _xferCalc = null;
         }
 
         /// <summary>
