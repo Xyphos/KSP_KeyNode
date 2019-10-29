@@ -11,7 +11,7 @@
 //  furnished to do so, subject to the following conditions:
 // 
 //  The above copyright notice and this permission notice shall be included in all
-//   copies or substantial portions of the Software.
+//  copies or substantial portions of the Software.
 // 
 //  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 //  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -21,13 +21,17 @@
 //  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 //  SOFTWARE.
 
+#pragma warning disable IDE1006 // Naming Styles
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
 
-namespace KeyNode
+// ReSharper disable UnusedMember.Global
+
+namespace XyphosAerospace
 {
   [KSPAddon(startup: KSPAddon.Startup.Flight, once: false)]
   public class KeyNode : MonoBehaviour
@@ -37,8 +41,13 @@ namespace KeyNode
     // ReSharper disable once InconsistentNaming
     private const string ID = "[KeyNode]";
 
-    private static double _delta;
-    private static bool   _rightAlt, _rightCtrl, _rightShift;
+    private static          double          _delta;
+    private static          bool            _rightAlt, _rightCtrl, _rightShift;
+
+    private static readonly KeyCodeExtended RightAltKeyCodeExtended     = new KeyCodeExtended(key: KeyCode.RightAlt);
+    private static readonly KeyCodeExtended RightCommandKeyCodeExtended = new KeyCodeExtended(key: KeyCode.RightCommand);
+    private static readonly KeyCodeExtended RightCtrlKeyCodeExtended    = new KeyCodeExtended(key: KeyCode.RightControl);
+    private static readonly KeyCodeExtended RightShiftKeyCodeExtended   = new KeyCodeExtended(key: KeyCode.RightShift);
 
     // lookup table for delta modifiers
     private static readonly double[] ModKeyMap =
@@ -54,44 +63,44 @@ namespace KeyNode
       0.0001 // 7 all mod keys held
     };
 
-    private static readonly Dictionary<KeyCode, Callback> ModifierKeys = new Dictionary<KeyCode, Callback>
+    private static readonly Dictionary<KeyCodeExtended, Callback> ModifierKeys = new Dictionary<KeyCodeExtended, Callback>
     {
-      {KeyCode.Keypad1, () => currentNode.DeltaV.z -= _delta}, // subtract prograde
-      {KeyCode.End, () => currentNode.DeltaV.z -= _delta},     // alternate subtract prograde
+      {new KeyCodeExtended(key: KeyCode.Keypad1), () => currentNode.DeltaV.z -= _delta}, // subtract prograde
+      {new KeyCodeExtended(key: KeyCode.End), () => currentNode.DeltaV.z -= _delta},     // alternate subtract prograde
 
-      {KeyCode.Keypad2, () => currentNode.DeltaV.y -= _delta},   // subtract normal
-      {KeyCode.DownArrow, () => currentNode.DeltaV.y -= _delta}, // alternate subtract normal
+      {new KeyCodeExtended(key: KeyCode.Keypad2), () => currentNode.DeltaV.y -= _delta},   // subtract normal
+      {new KeyCodeExtended(key: KeyCode.DownArrow), () => currentNode.DeltaV.y -= _delta}, // alternate subtract normal
 
-      {KeyCode.Keypad3, () => currentNode.UT -= _delta},  // subtract time
-      {KeyCode.PageDown, () => currentNode.UT -= _delta}, // alternate subtract time
+      {new KeyCodeExtended(key: KeyCode.Keypad3), () => currentNode.UT -= _delta},  // subtract time
+      {new KeyCodeExtended(key: KeyCode.PageDown), () => currentNode.UT -= _delta}, // alternate subtract time
 
-      {KeyCode.Keypad4, () => currentNode.DeltaV.x -= _delta},   // subtract radial
-      {KeyCode.LeftArrow, () => currentNode.DeltaV.x -= _delta}, // alternate subtract radial
+      {new KeyCodeExtended(key: KeyCode.Keypad4), () => currentNode.DeltaV.x -= _delta},   // subtract radial
+      {new KeyCodeExtended(key: KeyCode.LeftArrow), () => currentNode.DeltaV.x -= _delta}, // alternate subtract radial
 
       // Keypad5 is reserved for MechJeb support
 
-      {KeyCode.Keypad6, () => currentNode.DeltaV.x += _delta},    // add raidal
-      {KeyCode.RightArrow, () => currentNode.DeltaV.x += _delta}, // alternate add radial
+      {new KeyCodeExtended(key: KeyCode.Keypad6), () => currentNode.DeltaV.x += _delta},    // add raidal
+      {new KeyCodeExtended(key: KeyCode.RightArrow), () => currentNode.DeltaV.x += _delta}, // alternate add radial
 
-      {KeyCode.Keypad7, () => currentNode.DeltaV.z += _delta}, // add prograde
-      {KeyCode.Home, () => currentNode.DeltaV.z += _delta},    // alternate add prograde
+      {new KeyCodeExtended(key: KeyCode.Keypad7), () => currentNode.DeltaV.z += _delta}, // add prograde
+      {new KeyCodeExtended(key: KeyCode.Home), () => currentNode.DeltaV.z += _delta},    // alternate add prograde
 
-      {KeyCode.Keypad8, () => currentNode.DeltaV.y += _delta}, // add normal
-      {KeyCode.UpArrow, () => currentNode.DeltaV.y += _delta}, // alternate add normal
+      {new KeyCodeExtended(key: KeyCode.Keypad8), () => currentNode.DeltaV.y += _delta}, // add normal
+      {new KeyCodeExtended(key: KeyCode.UpArrow), () => currentNode.DeltaV.y += _delta}, // alternate add normal
 
-      {KeyCode.Keypad9, () => currentNode.UT += _delta}, // add time
-      {KeyCode.PageUp, () => currentNode.UT += _delta},  // alternate add time
+      {new KeyCodeExtended(key: KeyCode.Keypad9), () => currentNode.UT += _delta}, // add time
+      {new KeyCodeExtended(key: KeyCode.PageUp), () => currentNode.UT += _delta},  // alternate add time
 
-      {KeyCode.KeypadPlus, () => currentNode.UT += orbit.period}, // add an orbit
+      {new KeyCodeExtended(key: KeyCode.KeypadPlus), () => currentNode.UT += orbit.period}, // add an orbit
       {
-        KeyCode.KeypadMinus, () => // subtract an orbit, if able. (don't go into the past)
+        new KeyCodeExtended(key: KeyCode.KeypadMinus), () => // subtract an orbit, if able. (don't go into the past)
         {
           var ut                      = currentNode.UT - orbit.period;
           if (ut > UT) currentNode.UT = ut;
         }
       },
       {
-        KeyCode.Backspace, () => // delete node(s)
+        new KeyCodeExtended(key: KeyCode.Backspace), () => // delete node(s)
         {
           if (!_rightShift) // right shift is required as a safety precaution.
             return;
@@ -127,23 +136,29 @@ namespace KeyNode
     {
       KeyBindings.Clear();
 
-      var t = typeof(GameSettings);
-      var b = t.GetFields().Where(predicate: fi => fi.IsStatic && fi.IsPublic && fi.FieldType == typeof(KeyBinding));
+      var gameSettingsType     = typeof(GameSettings);
+      var keyBindingFieldInfos = gameSettingsType.GetFields().Where(predicate: fi => fi.IsStatic && fi.IsPublic && fi.FieldType == typeof(KeyBinding));
 
-      foreach (var fi in b)
+      foreach (var keyBindingFieldInfo in keyBindingFieldInfos)
       {
-        var k  = (KeyBinding) fi.GetValue(obj: null);
-        var k1 = k.primary.code;
-        var k2 = k.secondary.code;
+        var keyBinding       = (KeyBinding) keyBindingFieldInfo.GetValue(obj: null);
+        var primaryKeyCode   = new KeyCodeExtended(key: keyBinding.primary.code);
+        var secondaryKeyCode = new KeyCodeExtended(key: keyBinding.secondary.code);
 
-        if (!ManeuverKeys.ContainsKey(key: k1)
-         && !ModifierKeys.ContainsKey(key: k1)
-         && !ManeuverKeys.ContainsKey(key: k2)
-         && !ModifierKeys.ContainsKey(key: k2))
+        if (!ManeuverKeys.ContainsKey(key: primaryKeyCode)
+         && !ModifierKeys.ContainsKey(key: primaryKeyCode)
+         && !ManeuverKeys.ContainsKey(key: secondaryKeyCode)
+         && !ModifierKeys.ContainsKey(key: secondaryKeyCode))
           continue;
 
-        KeyBindings.Add(key: fi.Name, value: k);
-        fi.SetValue(obj: null, value: new KeyBinding()); // blank keybinding
+        KeyBindings.Add(
+            key: keyBindingFieldInfo.Name,
+            value: keyBinding
+          );
+        keyBindingFieldInfo.SetValue(
+            obj: null,
+            value: new KeyBinding()
+          ); // blank keybinding
       }
 
       GameSettings.ApplySettings();
@@ -157,7 +172,12 @@ namespace KeyNode
 
       var t = typeof(GameSettings);
 
-      foreach (var b in KeyBindings) t.GetField(name: b.Key).SetValue(obj: null, value: b.Value);
+      foreach (var b in KeyBindings)
+        t.GetField(name: b.Key)
+       .SetValue(
+            obj: null,
+            value: b.Value
+          );
 
       GameSettings.ApplySettings();
       _savedBindings = false;
@@ -199,7 +219,7 @@ namespace KeyNode
       #region BugFix: v1.1 Cancel MechJeb node execution while time warping
 
       if (_mechJeb2 != null
-       && Input.GetKeyUp(key: KeyCode.KeypadEnter))
+       && ExtendedInput.GetKeyUp(key: new KeyCodeExtended(key: KeyCode.KeypadEnter)))
         MechJebOperationExecuteNode();
 
       #endregion
@@ -207,7 +227,7 @@ namespace KeyNode
       if (Math.Abs(value: Time.timeScale - 1f) > 0.1f) return;
 
       // SOI Warp
-      if (Input.GetKeyUp(key: KeyCode.KeypadMultiply))
+      if (ExtendedInput.GetKeyUp(key: new KeyCodeExtended(key: KeyCode.KeypadMultiply)))
         if (orbit.patchEndTransition == Orbit.PatchTransitionType.ENCOUNTER
          || orbit.patchEndTransition == Orbit.PatchTransitionType.ESCAPE)
         {
@@ -220,9 +240,9 @@ namespace KeyNode
           Msg(msg: "Warp To SOI transition is not currently possible.");
         }
 
-      _rightAlt   = Input.GetKey(key: KeyCode.RightAlt) || Input.GetKey(key: KeyCode.RightCommand);
-      _rightCtrl  = Input.GetKey(key: KeyCode.RightControl);
-      _rightShift = Input.GetKey(key: KeyCode.RightShift);
+      _rightAlt   = ExtendedInput.GetKey(key: RightAltKeyCodeExtended) || ExtendedInput.GetKey(key: RightCommandKeyCodeExtended);
+      _rightCtrl  = ExtendedInput.GetKey(key: RightCtrlKeyCodeExtended);
+      _rightShift = ExtendedInput.GetKey(key: RightShiftKeyCodeExtended);
 
       // combine the modifier keys into a binary-coded integer
       var i = (_rightCtrl ? 1 : 0) | (_rightShift ? 2 : 0) | (_rightAlt ? 4 : 0);
@@ -233,7 +253,7 @@ namespace KeyNode
       // call maneuver methods as needed, if MechJeb is installed.
       if (_mechJeb2 != null)
         foreach (var maneuverKey in ManeuverKeys)
-          if (Input.GetKeyUp(key: maneuverKey.Key))
+          if (ExtendedInput.GetKeyUp(key: maneuverKey.Key))
             maneuverKey.Value(); // the maneuver method is in the value
 
       // make sure a node exists
@@ -241,7 +261,7 @@ namespace KeyNode
 
       foreach (var modifierKey in ModifierKeys)
       {
-        if (!Input.GetKeyUp(key: modifierKey.Key)) continue;
+        if (!ExtendedInput.GetKeyUp(key: modifierKey.Key)) continue;
         modifierKey.Value(); // the modifier method is in the value
         UpdateNode(node: currentNode);
       }
@@ -256,7 +276,10 @@ namespace KeyNode
       node.attachedGizmo.UT          = node.UT;
       node.attachedGizmo.patchBefore = node.patch;
       node.attachedGizmo.patchAhead  = node.nextPatch;
-      node.attachedGizmo.OnGizmoUpdated?.Invoke(dV: node.DeltaV, UT: node.UT);
+      node.attachedGizmo.OnGizmoUpdated?.Invoke(
+          dV: node.DeltaV,
+          UT: node.UT
+        );
     }
 
     #endregion
@@ -269,16 +292,16 @@ namespace KeyNode
     /// <summary>
     ///   The maneuver keys
     /// </summary>
-    private static readonly Dictionary<KeyCode, Callback> ManeuverKeys = new Dictionary<KeyCode, Callback>
+    private static readonly Dictionary<KeyCodeExtended, Callback> ManeuverKeys = new Dictionary<KeyCodeExtended, Callback>
     {
-      {KeyCode.Keypad0, MechJebOperationCircularize},
-      {KeyCode.Insert, MechJebOperationCircularize}, // alternate circularize
+      {new KeyCodeExtended(key: KeyCode.Keypad0), MechJebOperationCircularize},
+      {new KeyCodeExtended(key: KeyCode.Insert), MechJebOperationCircularize}, // alternate circularize
 
-      {KeyCode.KeypadPeriod, MechJebOperationMatchVelocitiesWithTarget},
-      {KeyCode.Delete, MechJebOperationMatchVelocitiesWithTarget}, // alternate match
+      {new KeyCodeExtended(key: KeyCode.KeypadPeriod), MechJebOperationMatchVelocitiesWithTarget},
+      {new KeyCodeExtended(key: KeyCode.Delete), MechJebOperationMatchVelocitiesWithTarget}, // alternate match
 
-      {KeyCode.Keypad5, MechJebOperationInterceptTarget},
-      {KeyCode.KeypadDivide, MechJebOperationTransfer}
+      {new KeyCodeExtended(key: KeyCode.Keypad5), MechJebOperationInterceptTarget},
+      {new KeyCodeExtended(key: KeyCode.KeypadDivide), MechJebOperationTransfer}
     };
 
     /// <summary>
@@ -288,7 +311,12 @@ namespace KeyNode
     /// <param name="ut">The ut.</param>
     /// <param name="v">The v.</param>
     /// <param name="o">The o.</param>
-    private static void PlaceManeuverNode(Vector3d dv, double ut, Vessel v = null, Orbit o = null)
+    private static void PlaceManeuverNode(
+        Vector3d dv,
+        double   ut,
+        Vessel   v = null,
+        Orbit    o = null
+      )
     {
       if (v == null) v = vessel;
       if (o == null) o = orbit;
@@ -302,14 +330,28 @@ namespace KeyNode
        || double.IsInfinity(d: ut))
         throw new ArgumentOutOfRangeException(paramName: $"{ID} bad ut node");
 
-      ut = Math.Max(val1: ut, val2: UT);
+      ut = Math.Max(
+          val1: ut,
+          val2: UT
+        );
       var node = v.patchedConicSolver.AddManeuverNode(UT: ut);
-      node.DeltaV = (Vector3d) MuMech(methodPath: "OrbitExtensions.DeltaVToManeuverNodeCoordinates", o, ut, dv);
+      node.DeltaV = (Vector3d) MuMech(
+          methodPath: "OrbitExtensions.DeltaVToManeuverNodeCoordinates",
+          o,
+          ut,
+          dv
+        );
       UpdateNode(node: node);
     }
 
-    // convienenice method
-    private static object MuMech(string methodPath, params object[] args) => MuMech(methodPath: methodPath, args: ref args);
+    // convenience method
+    private static object MuMech(
+        string          methodPath,
+        params object[] args
+      ) => MuMech(
+        methodPath: methodPath,
+        args: ref args
+      );
 
     /// <summary>
     ///   Invokes static methods, automatic type detection and reference type support (for out/ref parameters)
@@ -320,7 +362,11 @@ namespace KeyNode
     /// <returns></returns>
     /// <exception cref="NullReferenceException">
     /// </exception>
-    private static object MuMech(string methodPath, ref object[] args, int[] refTypeIndicies = null)
+    private static object MuMech(
+        string       methodPath,
+        ref object[] args,
+        int[]        refTypeIndicies = null
+      )
     {
       //Debug.Log($"[KeyNode] ARGS: {args.Length}");
       var types = args.Length == 0 ? Type.EmptyTypes : args.Select(selector: o => o.GetType()).ToArray();
@@ -329,18 +375,31 @@ namespace KeyNode
         foreach (var t in refTypeIndicies)
           types[t] = types[t].MakeByRefType();
 
-      var i          = methodPath.LastIndexOf(value: ".", comparisonType: StringComparison.OrdinalIgnoreCase);
-      var classPath  = "MuMech." + methodPath.Substring(startIndex: 0, length: i);
+      var i = methodPath.LastIndexOf(
+          value: ".",
+          comparisonType: StringComparison.OrdinalIgnoreCase
+        );
+      var classPath = "MuMech."
+                    + methodPath.Substring(
+                          startIndex: 0,
+                          length: i
+                        );
       var methodName = methodPath.Substring(startIndex: i + 1);
       Debug.Log(message: $"{ID} {classPath}.{methodName}({string.Join(separator: ", ", value: types.Select(selector: t => t.Name).ToArray())})");
 
       var c = _mechJeb2.assembly.GetType(name: classPath);
       if (c == null) throw new NullReferenceException(message: $"{ID} classPath is invalid"); // check your spelling and/or arg types?
 
-      var m = c.GetMethod(name: methodName, types: types);
+      var m = c.GetMethod(
+          name: methodName,
+          types: types
+        );
       if (m == null) throw new NullReferenceException(message: $"{ID} methodName is invalid"); // check your spelling and/or arg types?
 
-      return m.Invoke(obj: null, parameters: args);
+      return m.Invoke(
+          obj: null,
+          parameters: args
+        );
     }
 
 
@@ -357,32 +416,70 @@ namespace KeyNode
       }
 
 
-      var mjCore = MuMech(methodPath: "VesselExtensions.GetMasterMechJeb", vessel);
+      var mjCore = MuMech(
+          methodPath: "VesselExtensions.GetMasterMechJeb",
+          vessel
+        );
 
       // get the node executor module from mechjeb
       var execModule = mjCore.GetType()
-                             .GetMethod(name: "GetComputerModule", types: new[] {typeof(string)})
-                            ?.Invoke(obj: mjCore, parameters: new object[] {"MechJebModuleNodeExecutor"});
+                             .GetMethod(
+                                  name: "GetComputerModule",
+                                  types: new[]
+                                  {
+                                    typeof(string)
+                                  }
+                                )
+                            ?.Invoke(
+                                  obj: mjCore,
+                                  parameters: new object[]
+                                  {
+                                    "MechJebModuleNodeExecutor"
+                                  }
+                                );
 
       var type = execModule?.GetType();
 
       // ReSharper disable once PossibleNullReferenceException
-      if ((bool) type?.GetProperty(name: "enabled")?.GetValue(obj: execModule, index: null))
+      if ((bool) type?.GetProperty(name: "enabled")
+    ?.GetValue(
+          obj: execModule,
+          index: null
+        ))
       {
-        type.GetMethod(name: "Abort")?.Invoke(obj: execModule, parameters: new object[] { });
+        type.GetMethod(name: "Abort")
+           ?.Invoke(
+                 obj: execModule,
+                 parameters: new object[]
+                   { }
+               );
         Msg(msg: "Node execution aborted!");
         return;
       }
 
       if (_rightShift) // right shift forces all nodes to execute
       {
-        type.GetMethod(name: "ExecuteAllNodes")?.Invoke(obj: execModule, parameters: new[] {execModule});
+        type.GetMethod(name: "ExecuteAllNodes")
+           ?.Invoke(
+                 obj: execModule,
+                 parameters: new[]
+                 {
+                   execModule
+                 }
+               );
         Msg(msg: "Executing ALL nodes");
         return;
       }
 
       // execute one node by default.
-      type.GetMethod(name: "ExecuteOneNode")?.Invoke(obj: execModule, parameters: new[] {execModule});
+      type.GetMethod(name: "ExecuteOneNode")
+         ?.Invoke(
+               obj: execModule,
+               parameters: new[]
+               {
+                 execModule
+               }
+             );
       Msg(msg: "Executing current node");
     }
 
@@ -412,10 +509,23 @@ namespace KeyNode
       }
 
 
-      var ut = (double) MuMech(methodPath: "OrbitExtensions.NextClosestApproachTime", orbit, targetOrbit, UT);
-      var dv = (Vector3d) MuMech(methodPath: "OrbitalManeuverCalculator.DeltaVToMatchVelocities", orbit, ut, targetOrbit);
+      var ut = (double) MuMech(
+          methodPath: "OrbitExtensions.NextClosestApproachTime",
+          orbit,
+          targetOrbit,
+          UT
+        );
+      var dv = (Vector3d) MuMech(
+          methodPath: "OrbitalManeuverCalculator.DeltaVToMatchVelocities",
+          orbit,
+          ut,
+          targetOrbit
+        );
 
-      PlaceManeuverNode(dv: dv, ut: ut);
+      PlaceManeuverNode(
+          dv: dv,
+          ut: ut
+        );
     }
 
 
@@ -439,20 +549,43 @@ namespace KeyNode
 
       double   anTime = double.MaxValue, dnTime = double.MaxValue;
       Vector3d anDv   = Vector3d.zero,   dnDv   = Vector3d.zero;
-      var      args   = new object[] {orbit, targetOrbit, UT, 0d};
-      var      refs   = new[] {3};
+      var args = new object[]
+      {
+        orbit,
+        targetOrbit,
+        UT,
+        0d
+      };
+      var refs = new[]
+      {
+        3
+      };
 
-      var anExists = (bool) MuMech(methodPath: "OrbitExtensions.AscendingNodeEquatorialExists", orbit);
+      var anExists = (bool) MuMech(
+          methodPath: "OrbitExtensions.AscendingNodeEquatorialExists",
+          orbit
+        );
       if (anExists)
       {
-        anDv   = (Vector3d) MuMech(methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesAscending", args: ref args, refTypeIndicies: refs);
+        anDv = (Vector3d) MuMech(
+            methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesAscending",
+            args: ref args,
+            refTypeIndicies: refs
+          );
         anTime = (double) args[3];
       }
 
-      var dnExists = (bool) MuMech(methodPath: "OrbitExtensions.DescendingNodeEquatorialExists", orbit);
+      var dnExists = (bool) MuMech(
+          methodPath: "OrbitExtensions.DescendingNodeEquatorialExists",
+          orbit
+        );
       if (dnExists)
       {
-        dnDv   = (Vector3d) MuMech(methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesDescending", args: ref args, refTypeIndicies: refs);
+        dnDv = (Vector3d) MuMech(
+            methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeToMatchPlanesDescending",
+            args: ref args,
+            refTypeIndicies: refs
+          );
         dnTime = (double) args[3];
       }
 
@@ -468,7 +601,10 @@ namespace KeyNode
 
       var dv = anTime < dnTime ? anDv : dnDv;
 
-      PlaceManeuverNode(dv: dv, ut: ut);
+      PlaceManeuverNode(
+          dv: dv,
+          ut: ut
+        );
     }
 
     /// <summary>
@@ -487,13 +623,28 @@ namespace KeyNode
 
 
       var ut = _rightShift || orbit.eccentricity >= 1 // hyperbolic orbits force periapsis burns
-                 ? (double) MuMech(methodPath: "OrbitExtensions.NextPeriapsisTime", orbit, UT)
-                 : (double) MuMech(methodPath: "OrbitExtensions.NextApoapsisTime", orbit, UT);
+                 ? (double) MuMech(
+                     methodPath: "OrbitExtensions.NextPeriapsisTime",
+                     orbit,
+                     UT
+                   )
+                 : (double) MuMech(
+                     methodPath: "OrbitExtensions.NextApoapsisTime",
+                     orbit,
+                     UT
+                   );
 
-      var dv = (Vector3d) MuMech(methodPath: "OrbitalManeuverCalculator.DeltaVToCircularize", orbit, ut);
+      var dv = (Vector3d) MuMech(
+          methodPath: "OrbitalManeuverCalculator.DeltaVToCircularize",
+          orbit,
+          ut
+        );
       if (dv == null) throw new NullReferenceException(message: "dv is null");
 
-      PlaceManeuverNode(dv: dv, ut: ut);
+      PlaceManeuverNode(
+          dv: dv,
+          ut: ut
+        );
     }
 
     /// <summary>
@@ -588,19 +739,49 @@ namespace KeyNode
         var c = _mechJeb2.assembly.GetType(name: "MuMech.VesselExtensions");
         if (c == null) throw new NullReferenceException(message: $"{ID} CheckPorkchop() null class type, err1");
 
-        var mjCore = c.GetMethod(name: "GetMasterMechJeb")?.Invoke(obj: c, parameters: new object[] {vessel});
+        var mjCore = c.GetMethod(name: "GetMasterMechJeb")
+                     ?.Invoke(
+                           obj: c,
+                           parameters: new object[]
+                           {
+                             vessel
+                           }
+                         );
         if (mjCore == null) throw new NullReferenceException(message: $"{ID} CheckPorkchop() null mjCore, err2");
 
         var tc = mjCore.GetType().GetField(name: "target")?.GetValue(obj: mjCore);
         var t  = _advXfer.GetType();
-        var w  = t.GetField(name: "worker", bindingAttr: BindingFlags.NonPublic | BindingFlags.IgnoreCase)?.GetValue(obj: _advXfer);
-        var p  = w?.GetType().GetProperty(name: "Progress")?.GetValue(obj: null, index: null);
-        if (p != null) ScreenMessages.PostScreenMessage(message: $"{ID} Calculating Transfer {p}%", duration: 0.1f, style: ScreenMessageStyle.UPPER_LEFT);
+        var w = t.GetField(
+                    name: "worker",
+                    bindingAttr: BindingFlags.NonPublic | BindingFlags.IgnoreCase
+                  )
+                ?.GetValue(obj: _advXfer);
+        var p = w?.GetType()
+       .GetProperty(name: "Progress")
+      ?.GetValue(
+            obj: null,
+            index: null
+          );
+        if (p != null)
+          ScreenMessages.PostScreenMessage(
+              message: $"{ID} Calculating Transfer {p}%",
+              duration: 0.1f,
+              style: ScreenMessageStyle.UPPER_LEFT
+            );
 
         object m;
         try
         {
-          m = t.GetMethod(name: "MakeNodeImpl")?.Invoke(obj: _advXfer, parameters: new[] {orbit, UT, tc});
+          m = t.GetMethod(name: "MakeNodeImpl")
+              ?.Invoke(
+                    obj: _advXfer,
+                    parameters: new[]
+                    {
+                      orbit,
+                      UT,
+                      tc
+                    }
+                  );
         }
         catch (Exception e)
         {
@@ -618,7 +799,10 @@ namespace KeyNode
         var dv = (Vector3d) m.GetType().GetField(name: "dV").GetValue(obj: null);
         var ut = (double) m.GetType().GetField(name: "UT").GetValue(obj: null);
 
-        PlaceManeuverNode(dv: dv, ut: ut);
+        PlaceManeuverNode(
+            dv: dv,
+            ut: ut
+          );
         _advXfer = null;
       }
       catch (Exception e)
@@ -650,15 +834,27 @@ namespace KeyNode
 
       const double lowOrbit = 20000d;
       var          alt      = body.Radius + body.atmosphereDepth + lowOrbit;
-      var          args     = new object[] {orbit, UT, alt, 0d};
+      var args = new object[]
+      {
+        orbit,
+        UT,
+        alt,
+        0d
+      };
       var dv = (Vector3d) MuMech(
-        methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeForMoonReturnEjection",
-        args: ref args,
-        refTypeIndicies: new[] {3}
-      );
+          methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeForMoonReturnEjection",
+          args: ref args,
+          refTypeIndicies: new[]
+          {
+            3
+          }
+        );
       var ut = (double) args[3];
 
-      PlaceManeuverNode(dv: dv, ut: ut);
+      PlaceManeuverNode(
+          dv: dv,
+          ut: ut
+        );
       MapView.MapCamera.SetTarget(tgt: body.MapObject); // set view to body for fine-tuning
     }
 
@@ -696,15 +892,35 @@ namespace KeyNode
       }
 
 
-      var relInc = (double) MuMech(methodPath: "OrbitExtensions.RelativeInclination", orbit, targetOrbit);
+      var relInc = (double) MuMech(
+          methodPath: "OrbitExtensions.RelativeInclination",
+          orbit,
+          targetOrbit
+        );
 
       if (relInc > 30
        && relInc < 150)
         ScreenMessages.PostScreenMessage(message: $"{ID} WARNING: Planned Hohmann Transfer might not intercept the target!");
 
-      var args = new object[] {orbit, targetOrbit, UT, 0d};
-      var dv   = (Vector3d) MuMech(methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer", args: ref args, refTypeIndicies: new[] {3});
-      PlaceManeuverNode(dv: dv, ut: (double) args[3]);
+      var args = new object[]
+      {
+        orbit,
+        targetOrbit,
+        UT,
+        0d
+      };
+      var dv = (Vector3d) MuMech(
+          methodPath: "OrbitalManeuverCalculator.DeltaVAndTimeForHohmannTransfer",
+          args: ref args,
+          refTypeIndicies: new[]
+          {
+            3
+          }
+        );
+      PlaceManeuverNode(
+          dv: dv,
+          ut: (double) args[3]
+        );
       MapView.MapCamera.SetTarget(body: target as CelestialBody); // look at target for fine-tuning
     }
 
@@ -733,7 +949,11 @@ namespace KeyNode
           break;
         }
 
-        correctionPatch = (Orbit) MuMech(methodPath: "VesselExtensions.GetNextPatch", vessel, correctionPatch);
+        correctionPatch = (Orbit) MuMech(
+            methodPath: "VesselExtensions.GetNextPatch",
+            vessel,
+            correctionPatch
+          );
       }
 
       if (correctionPatch               == null
@@ -744,8 +964,18 @@ namespace KeyNode
       }
 
 
-      var aTime = (double) MuMech(methodPath: "OrbitExtensions.NextClosestApproachTime", o, targetOrbit, ut);
-      var aDist = (double) MuMech(methodPath: "OrbitExtensions.NextClosestApproachDistance", o, targetOrbit, ut);
+      var aTime = (double) MuMech(
+          methodPath: "OrbitExtensions.NextClosestApproachTime",
+          o,
+          targetOrbit,
+          ut
+        );
+      var aDist = (double) MuMech(
+          methodPath: "OrbitExtensions.NextClosestApproachDistance",
+          o,
+          targetOrbit,
+          ut
+        );
 
       if (aTime < ut + 1
        || aDist > targetOrbit.semiMajorAxis * 0.2)
@@ -763,18 +993,50 @@ namespace KeyNode
 
       if (targetBody == null)
       {
-        var args = new object[] {o, ut, targetOrbit, iDist, ut};
-        dv = (Vector3d) MuMech(methodPath: m, args: ref args, refTypeIndicies: new[] {4});
+        var args = new object[]
+        {
+          o,
+          ut,
+          targetOrbit,
+          iDist,
+          ut
+        };
+        dv = (Vector3d) MuMech(
+            methodPath: m,
+            args: ref args,
+            refTypeIndicies: new[]
+            {
+              4
+            }
+          );
         ut = (double) args[4];
       }
       else
       {
-        var args = new object[] {o, ut, targetOrbit, targetBody, targetBody.Radius + peA, ut};
-        dv = (Vector3d) MuMech(methodPath: m, args: ref args, refTypeIndicies: new[] {5});
+        var args = new object[]
+        {
+          o,
+          ut,
+          targetOrbit,
+          targetBody,
+          targetBody.Radius + peA,
+          ut
+        };
+        dv = (Vector3d) MuMech(
+            methodPath: m,
+            args: ref args,
+            refTypeIndicies: new[]
+            {
+              5
+            }
+          );
         ut = (double) args[5];
       }
 
-      PlaceManeuverNode(dv: dv, ut: ut);
+      PlaceManeuverNode(
+          dv: dv,
+          ut: ut
+        );
     }
 
     #endregion
